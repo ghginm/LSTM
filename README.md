@@ -4,7 +4,7 @@
   <picture>
   <source media="(prefers-color-scheme: dark)" srcset="analysis/RNN_dark.jpg">
   <source media="(prefers-color-scheme: light)" srcset="analysis/RNN_light.jpg">
-  <img alt="CV" src="analysis/RNN_dark.jpg" width="500" height="auto">
+  <img alt="RNN" src="analysis/RNN_dark.jpg" width="500" height="auto">
   </picture>
 </div>
 
@@ -157,7 +157,7 @@ To prevent overfitting, early stopping was used. However, for time-series proble
 <div align="center"><picture>
 <source media="(prefers-color-scheme: dark)" srcset="analysis/Loss_dark.png">
 <source media="(prefers-color-scheme: light)" srcset="analysis/Loss_light.png">
-<img alt="CV" src="analysis/Loss_dark.png" width="1000" height="auto">
+<img alt="CV_loss" src="analysis/Loss_dark.png" width="1000" height="auto">
 </picture></div>
 
 Additionally, to generalise better and smooth out unwanted oscillations of weights that frequently happen as a result of the implemented early stopping, the final $n$ epochs were averaged. In this case, the optimal $n$ was chosen based on the lowest average loss across different thresholds of $n$. Finally, 4 $LSTM$ models were trained and their predictions were averaged.
@@ -167,9 +167,9 @@ Additionally, to generalise better and smooth out unwanted oscillations of weigh
 An out-of-sample error was calculated based on a six-week forecast. Here is a subset of random time series alongside their forecasts:
 
 <div align="center"><picture>
-<source media="(prefers-color-scheme: dark)" srcset="analysis/Figures_dark.png">
+<source media="(prefers-color-scheme: dark)" srcset="analysis/FIgures_dark.png">
 <source media="(prefers-color-scheme: light)" srcset="analysis/Figures_light.png">
-<img alt="CV" src="analysis/FIgures_dark.png" width="1000" height="auto">
+<img alt="Forecast" src="analysis/FIgures_dark.png" width="1000" height="auto">
 </picture></div>
 
 Besides $RMSE$ and $MAE$, two additional metrics ($Forecast accuracy$ and $BIAS$) were used to assess the forecast quality:
