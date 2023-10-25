@@ -172,7 +172,7 @@ An out-of-sample error was calculated based on a six-week forecast. Here is a su
 <img alt="Forecast" src="analysis/FIgures_dark.png" width="1000" height="auto">
 </picture></div>
 
-Besides $RMSE$ and $MAE$, two additional metrics ($Forecast accuracy$ and $BIAS$) were used to assess the forecast quality:
+Besides $RMSE$ and $MAE$, two additional metrics ($Forecast$ $accuracy$ and $BIAS$) were used to assess the forecast quality:
 
 
 $$FA = 1 - \dfrac{\sum |forecast - fact|}{\sum forecast}; BIAS = \dfrac{\sum (forecast - fact)}{\sum forecast}$$
