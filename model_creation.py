@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from torch.utils.data import Dataset, DataLoader
 
 
-## Load dataset
+## Load a dataset
 
 def get_data(db_url, data_path, sql_access=True):
     if sql_access:
@@ -31,6 +31,8 @@ def get_data(db_url, data_path, sql_access=True):
 ## Time-series variables
 
 def ts_var(data, data_vars, date_col, id_col, target_col):
+    """Creating time-series variables: sine / cosine pairs. distant lags."""
+
     data['month'] = data[date_col].dt.month
     data['weekyear'] = [x.isocalendar()[1] for x in data[date_col]]
 
@@ -53,6 +55,16 @@ def ts_var(data, data_vars, date_col, id_col, target_col):
 
 # Determining the number of epochs for training and the number of epochs to average parameters
 def n_epoch_optim(loss_val_es_cv, loss_val_cv, final_epoch):
+    """Searching for the optimal number of epochs `n` to be averaged.
+    The value of `n` is determined based on minimising the recorded validation loss.
+
+    Parameters
+    ----------
+    loss_val_es_cv : a list loss values for each validation data set used for early stopping (ES).
+    loss_val_cv : a list loss values for each validation data set used for tuning other parameters.
+    final_epoch : a list of the final number of epochs for each CV split, e.g. [100, 89, 120].
+    """
+
     loss_val_es_cv, loss_val_cv = loss_val_es_cv, loss_val_cv
     n_epoch_final = math.ceil(np.mean(final_epoch))
 
@@ -85,6 +97,17 @@ def set_weights(model, weights):
 ## Data preparation and model initialisation
 
 class LSTM_model(nn.Module):
+    """A stateless LSTM neural network with return sequence=False.
+
+    Parameters
+    ----------
+    input_size : the number of variables.
+    hidden_size : the number of hidden units.
+    n_layer : the number of stacked layers.
+    dropout_prob : the dropout probability.
+    device : train a model either on CPU or GPU.
+    """
+
     def __init__(self, input_size, hidden_size, n_layer, dropout_prob, device):
         super().__init__()  # super(LSTM_model, self)
         self.input_size = input_size
@@ -128,6 +151,8 @@ class DatasetUtil(Dataset):
 
 
 class PrepareData:
+    """Transforming data to a supervised ML problem, scaling data, creating CV indices."""
+
     def __init__(self, data, id_col, var_cols, seq_len, sk_scaler_cv):
         self.data = data.copy()  # !!
         self.id_col = id_col
@@ -135,7 +160,34 @@ class PrepareData:
         self.seq_len = seq_len
         self.sk_scaler_cv = sk_scaler_cv
 
+        """
+        Parameters
+        ----------
+        id_col : the name of the id column, e.g. 'id'.
+        var_cols : a list containing variable names, e.g. ['x1', 'x2'].
+        seq_len : the sliding window size, e.g. seq_len=10.
+        sk_scaler_cv : sklearn estimator for data scaling, e.g. MinMaxScaler().
+        """
+
     def ts_shape(self, col_vector, model_stage: Literal['cv', 'training', 'forecasting']):
+        """
+        For a given id, this method reshapes it using the sliding window approach.
+
+        Example
+        ----------
+        The first column is the target variable (Y), the rest are exogenous variables (X):
+
+        [[22, 1, 0],
+         [33, 2, 0],
+         [44, 3, 0],
+         [55, 4, 0]]
+
+        Transforming the dataset to a supervised problem assuming the seq_len=2:
+
+        X_1 = np.array([[22, 1, 0], [33, 2, 0]]), Y_1 = [44]
+        X_2 = np.array([[33, 2, 0], [44, 3, 0]]), Y_2 = [55]
+        """
+
         if model_stage == 'forecasting':
             x = []
 
@@ -175,6 +227,8 @@ class PrepareData:
         return scaler
 
     def ts_shape_grouped(self, id_list, model_stage: Literal['cv', 'training', 'forecasting']):
+        """Iterating through each id and applying `ts_shape`."""
+
         if model_stage == 'forecasting':  # (!! use only a subset of data !!)
             x, y = [], None
 
@@ -196,6 +250,18 @@ class PrepareData:
         return x, y
 
     def cv_idx(self, padded_len, n_split, val_size, val_size_es, idx_tr_scale=False):
+        """This method creates indices for time-series CV.
+
+        Parameters
+        ----------
+        padded_len : the maximum length after padding that any id can have.
+        n_split : the number of CV splits.
+        val_size : the size of a validation set for parameter tuning.
+        val_size_es : the size of a validation set for early stopping.
+        idx_tr_scale : if True, indices are determined for the original dataset to apply scaling properly within each
+        CV loop. If False, indices are determined for the transformed dataset (reshaped for supervised learning).
+        """
+
         n_ids = len(self.data[self.id_col].unique())
 
         if idx_tr_scale:
