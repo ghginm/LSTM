@@ -32,24 +32,29 @@ For this project, real-world data of beer consumption in Russia were used. All d
 |   |   ├── final_model_2_param_avg.pt
 │   │   ├── final_model_3_param_avg.pt
 │   │   └── lstm_cv.pickle
+|   ├── output/
 │   ├── benchmarks.py
+|   ├── config.json
 │   ├── cv_train.py
+|   ├── data_processing.py
 │   ├── forecasting.py
 │   ├── model_creation.py
 ```
 
 **Directories**:
 
-* `analysis/`: contains secondary files for analysing and visualising the results.
+* `analysis/`: contains secondary files for analysing and visualising the results as well as test forecasts.
 * `data/`: contains data for the project.
 * `model/`: stores pretrained pytorch models and the results of a CV loop.
+* `output/`: stores the final forecast versions.
 
 **Scripts**:
 
 * `benchmarks.py`: compares the performance of an $LSTM$ model with popular time-series forecasting algorithms ($ETS$, $ARIMA$).
 * `cv_train.py`: executes a CV loop and trains several $LSTM$ models.
+* `data_processing.py`: contains utility function for processing data (loading, splitting...).
 * `forecasting.py`: implements recursive forecasting.
-* `model_creation.py`: a module that contains all necessary classes and functions.
+* `model_creation.py`: a module that contains all necessary classes and functions for building a model.
 
 # <a name="s2"/> Key features
 
@@ -121,11 +126,11 @@ lstm_train_cv = mc.LstmTrainingCv(data=data, id_col='ID', var_cols=var_cols, seq
 
 # Cross validation
 lstm_cv = lstm_train_cv.lstm_cv(input_size=len(var_cols), hidden_size=64, n_layer=2,
-                                dropout_prob=0.2, l_rate=0.01,
+                                dropout_prob=0.2, weight_decay=0.00001, l_rate=0.01,
                                 padded_len=134,
                                 n_epoch=1000, batch_size=64,
                                 n_split=4, val_size=4, val_size_es=4,
-                                patience=30, min_delta=0.04)
+                                patience=45, min_delta=0.02)
 
 loss_val_es_cv, loss_val_cv, loss_tr_cv = lstm_cv[0], lstm_cv[1], lstm_cv[4]
 loss_final_epoch_val, final_epoch = lstm_cv[2], lstm_cv[3]
@@ -134,9 +139,12 @@ loss_final_epoch_val, final_epoch = lstm_cv[2], lstm_cv[3]
 scaler = sk_scaler.fit(data[var_cols].to_numpy(), var_cols)
 data[var_cols] = scaler.transform(data[var_cols].to_numpy())
 
-final_model, param_final_model = lstm_train_cv.lstm_train(input_size=len(var_cols), hidden_size=64,
-                                                          n_layer=2, dropout_prob=0.2, l_rate=0.01,
-                                                          n_epoch=100, batch_size=64)
+final_model, param_final_model = lstm_train_cv.lstm_train(input_size=len(var_cols),
+                                                          hidden_size=64,
+                                                          n_layer=2, dropout_prob=0.2,
+                                                          weight_decay=0.00001,
+                                                          l_rate=0.01, n_epoch=100,
+                                                          batch_size=64)
 
 # Forecasting
 final_model = mc.LSTM_model(input_size=len(var_cols), hidden_size=64, n_layer=2,
