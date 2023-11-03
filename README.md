@@ -51,6 +51,7 @@ For this project, real-world data of beer consumption in Russia were used. All d
 **Scripts**:
 
 * `benchmarks.py`: compares the performance of an $LSTM$ model with popular time-series forecasting algorithms ($ETS$, $ARIMA$).
+* `config.json`: stores the script's parameters.
 * `cv_train.py`: executes a CV loop and trains several $LSTM$ models.
 * `data_processing.py`: contains utility function for processing data (loading, splitting...).
 * `forecasting.py`: implements recursive forecasting.
@@ -97,7 +98,7 @@ data_cv_idx = data_prep.cv_idx(padded_len=134, n_split=4, val_size=4,
   </picture></div>
   <br>
   
-  * `lstm_train`: this method is used after hyperparameter optimisation to train the final model.
+  * `lstm_train`: this method is used after hyperparameter optimisation to train a model.
   * `lstm_forecast`: this method produces a one-step-ahead forecast.
   
 **Usage**:
