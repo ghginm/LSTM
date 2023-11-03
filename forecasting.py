@@ -1,35 +1,45 @@
+import json
 import os
 import pickle
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 from sklearn.preprocessing import MinMaxScaler
 
+import data_processing as dp
 import model_creation as mc
 
 
-## Data
+## Initial parameters
 
 path_project = str(Path('__file__').absolute().parent)
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print('Device:', device)
+with open(f'{path_project}//config.json', 'r') as config_file:
+    config = json.load(config_file)
 
-data = mc.get_data(db_url='mysql+mysqlconnector:...', data_path=f'{path_project}\\data\\data.pickle', sql_access=False)
+model_config, model_cv = config['model_configuration'], config['model_cv']
+model_training, model_testing, model_forecasting = config['model_training'], config['testing'], config['model_forecasting']
+testing = model_testing['testing']
 
-data_test = data[data['week'] >= '2023-06-19'].reset_index(drop=True)
-data = data[data['week'] < '2023-06-19'].reset_index(drop=True)
-data = data.sort_values(['ID', 'week']).reset_index(drop=True)
+## Data
+
+data = dp.get_data(db_url='mysql+mysqlconnector:...', data_path=f'{path_project}\\data\\data.pickle', sql_access=False)
+data = dp.preprocess_data(data=data, date_col='week', id_col='ID', target_col='QuantityDal', empty_token=0)
+
+if testing:
+    data_test, data = dp.split_data(data=data, date_col='week', test_start='2023-06-19', test_end=None)
 
 ## Variables
 
 with open(f'{path_project}\\data\\weather.pickle', 'rb') as handle:
     weather = pickle.load(handle)
 
-data = mc.ts_var(data=data, data_vars=weather, date_col='week', id_col='ID', target_col='QuantityDal')
+data = mc.ts_var(data=data, date_col='week', id_col='ID', target_col='QuantityDal',
+                 sin_cos_vars=True, lag_vars=True, data_vars=weather)
 
-## Initial parameters
+## Script parameters
 
 # Parameters
 input_col = (['QuantityDal', 'temp_day', 'temp_sat', 'temp_sun'] +
@@ -40,14 +50,19 @@ id_list = data['ID'].unique()
 sk_scaler = MinMaxScaler()
 loss_func = torch.nn.MSELoss()
 
-h = len(data_test['week'].unique())
+if testing:
+    h = len(data_test['week'].unique())
+else:
+    h = model_forecasting['h']
 
 # Hyperparameters
-seq_len = 15
+seq_len = model_config['seq_len']
 input_size = len(input_col)
-dropout_prob = 0.2
-hidden_size = 2*32
-n_layer = 2
+dropout_prob = model_config['dropout_prob']
+hidden_size = model_config['hidden_size']
+n_layer = model_config['n_layer']
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ## Scaling data
 
@@ -85,9 +100,28 @@ for i in model_name:
     preds[preds < 0] = 0
     all_preds.append(preds)
 
-preds_final = data_pred[['ID', 'week']].merge(data_test, how='left', on=['ID', 'week']).reset_index(drop=True)
-preds_final['LSTM'] = np.average(all_preds, axis=0)
+# Filtering results
+fc_total = np.sum(all_preds, axis=1)
+fc_final_idx = []
+
+for idx, x in enumerate(fc_total / np.median(fc_total)):
+    if (x <= 1.1) and (x >= 0.9):
+        fc_final_idx.append(idx)
+
+all_preds = np.array(all_preds)[fc_final_idx]
 
 # Saving results
-with open(f'{path_project}\\analysis\\lstm_fc.pickle', 'wb') as handle:
-    pickle.dump(preds_final, handle)
+if testing:
+    preds_final = data_pred[['ID', 'week']].merge(data_test, how='left', on=['ID', 'week']).reset_index(drop=True)
+    preds_final['LSTM'] = np.average(all_preds, axis=0)
+
+    fc_version = (data['week'].max() + pd.to_timedelta(1, unit='W')).strftime('%Y-%m-%d')
+    with open(f'{path_project}\\analysis\\fc_{fc_version}.pickle', 'wb') as handle:
+        pickle.dump(preds_final, handle)  # load to SQL...
+else:
+    preds_final = data_pred[['ID', 'week']].reset_index(drop=True)
+    preds_final['LSTM'] = np.average(all_preds, axis=0)
+
+    fc_version = (data['week'].max() + pd.to_timedelta(1, unit='W')).strftime('%Y-%m-%d')
+    with open(f'{path_project}\\output\\fc_{fc_version}.pickle', 'wb') as handle:
+        pickle.dump(preds_final, handle)  # load to SQL...

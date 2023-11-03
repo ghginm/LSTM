@@ -1,9 +1,11 @@
+import json
 import pickle
 from pathlib import Path
 
 import torch
 from sklearn.preprocessing import MinMaxScaler
 
+import data_processing as dp
 import model_creation as mc
 
 
@@ -20,30 +22,38 @@ def avg_param(param_list):
 
     return param_avg
 
-## Data
+## Initial parameters
 
 path_project = str(Path('__file__').absolute().parent)
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print('Device:', device)
+with open(f'{path_project}//config.json', 'r') as config_file:
+    config = json.load(config_file)
 
-data = mc.get_data(db_url='mysql+mysqlconnector:...', data_path=f'{path_project}\\data\\data.pickle', sql_access=False)
+model_config, model_cv = config['model_configuration'], config['model_cv']
+model_training, model_testing = config['model_training'], config['testing']
+testing = model_testing['testing']
 
-data = data[data['week'] < '2023-06-19'].reset_index(drop=True)
-data = data.sort_values(['ID', 'week']).reset_index(drop=True)
+## Data
+
+data = dp.get_data(db_url='mysql+mysqlconnector:...', data_path=f'{path_project}\\data\\data.pickle', sql_access=False)
+data = dp.preprocess_data(data=data, date_col='week', id_col='ID', target_col='QuantityDal', empty_token=0)
+
+if testing:
+    data = dp.split_data(data=data, date_col='week', test_start='2023-06-19', test_end=None)[1]
 
 ## Variables
 
 with open(f'{path_project}\\data\\weather.pickle', 'rb') as handle:
     weather = pickle.load(handle)
 
-data = mc.ts_var(data=data, data_vars=weather, date_col='week', id_col='ID', target_col='QuantityDal')
+data = mc.ts_var(data=data, date_col='week', id_col='ID', target_col='QuantityDal',
+                 sin_cos_vars=True, lag_vars=True, data_vars=weather)
 
-## Initial parameters
+## Script parameters
 
 # Parameters
-n_split = 4
-val_size, val_size_es = 4, 4
+n_split = model_cv['n_split']
+val_size, val_size_es = model_cv['val_size'], model_cv['val_size_es']
 padded_len = len(data['ID'][data['ID'] == data['ID'][0]])
 
 input_col = (['QuantityDal', 'temp_day', 'temp_sat', 'temp_sun'] +
@@ -56,21 +66,24 @@ sk_scaler = MinMaxScaler()
 loss_func = torch.nn.MSELoss()
 
 # Hyperparameters
-seq_len = 15
+seq_len = model_config['seq_len']
 input_size = len(input_col)
-l_rate = 0.001
-dropout_prob = 0.2
-hidden_size = 2*32
-n_layer = 2
-batch_size = 10*64
-n_epoch = 1000
-patience = 35
-min_delta = 0.04
+l_rate = model_config['l_rate']
+dropout_prob = model_config['dropout_prob']
+weight_decay = model_config['weight_decay']
+hidden_size = model_config['hidden_size']
+n_layer = model_config['n_layer']
+batch_size = model_config['batch_size']
+n_epoch = model_config['n_epoch']
+patience = model_config['patience']
+min_delta = model_config['min_delta']
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Modes
-cv_mode = False
+cv_mode = True
 training_mode = True
-n_models = 4
+n_models = model_training['n_models']
 
 ## CV
 
@@ -79,7 +92,7 @@ if cv_mode:
                                       sk_scaler_cv=sk_scaler, id_list=id_list, loss_function=loss_func, device=device)
 
     lstm_cv = lstm_train_cv.lstm_cv(input_size=input_size, hidden_size=hidden_size, n_layer=n_layer,
-                                    dropout_prob=dropout_prob, l_rate=l_rate,
+                                    dropout_prob=dropout_prob, weight_decay=weight_decay, l_rate=l_rate,
                                     padded_len=padded_len,
                                     n_epoch=n_epoch, batch_size=batch_size,
                                     n_split=n_split, val_size=val_size, val_size_es=val_size_es,
@@ -127,7 +140,8 @@ if training_mode:
         print(43 * '-')
 
         final_model, param_final_model = lstm_train_cv.lstm_train(input_size=input_size, hidden_size=hidden_size,
-                                                                  n_layer=n_layer, dropout_prob=dropout_prob, l_rate=l_rate,
+                                                                  n_layer=n_layer, dropout_prob=dropout_prob,
+                                                                  weight_decay=weight_decay, l_rate=l_rate,
                                                                   n_epoch=n_epoch_final, batch_size=batch_size)
 
         # Averaging parameters (equal weights)

@@ -1,6 +1,5 @@
 import itertools
 import math
-import pickle
 from copy import deepcopy
 from typing import Literal
 
@@ -8,46 +7,31 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from sqlalchemy import create_engine
 from torch.utils.data import Dataset, DataLoader
 
 
-## Load a dataset
-
-def get_data(db_url, data_path, sql_access=True):
-    if sql_access:
-        engine = create_engine(db_url)
-        query = '''
-                SELECT week, QuantityDal, ID FROM ml_data
-                '''
-
-        data = pd.read_sql(query, con=engine)
-    else:
-        with open(data_path, 'rb') as handle:
-            data = pickle.load(handle)
-
-    return data
-
 ## Time-series variables
 
-def ts_var(data, data_vars, date_col, id_col, target_col):
-    """Creating time-series variables: sine / cosine pairs. distant lags."""
+def ts_var(data, date_col, id_col, target_col, sin_cos_vars=False, lag_vars=False, data_vars=None):
+    """Creating time-series variables: sine / cosine pairs, distant lags."""
 
-    data['month'] = data[date_col].dt.month
-    data['weekyear'] = [x.isocalendar()[1] for x in data[date_col]]
+    if sin_cos_vars:
+        data['month'] = data[date_col].dt.month
+        data['weekyear'] = [x.isocalendar()[1] for x in data[date_col]]
 
-    for i in [1, 2, 12]:
-        data[f'f_sin_52_{i}'] = np.sin((i * 2*np.pi * data['weekyear']) / 52)
-        data[f'f_cos_52_{i}'] = np.cos((i * 2*np.pi * data['weekyear']) / 52)
+        for i in [1, 2, 12]:
+            data[f'f_sin_52_{i}'] = np.sin((i * 2*np.pi * data['weekyear']) / 52)
+            data[f'f_cos_52_{i}'] = np.cos((i * 2*np.pi * data['weekyear']) / 52)
 
-    data = data.drop(['month', 'weekyear'], axis=1)
+        data = data.drop(['month', 'weekyear'], axis=1)
 
-    for i in [26, 39, 51, 52, 53]:
-        data[f'lag_{i}'] = data.groupby([id_col], observed=True,
-                                         group_keys=False)[target_col].shift(i).fillna(0)
+    if lag_vars:
+        for i in [26, 39, 51, 52, 53]:
+            data[f'lag_{i}'] = data.groupby([id_col], observed=True,
+                                             group_keys=False)[target_col].shift(i).fillna(0)
 
     if data_vars is not None:
-        data = data.merge(data_vars, how='left', on=['ID', 'week'])
+        data = data.merge(data_vars, how='left', on=[id_col, date_col])
 
     return data
 
@@ -58,11 +42,10 @@ def n_epoch_optim(loss_val_es_cv, loss_val_cv, final_epoch):
     """Searching for the optimal number of epochs `n` to be averaged.
     The value of `n` is determined based on minimising the recorded validation loss.
 
-    Parameters
-    ----------
-    loss_val_es_cv : a list loss values for each validation data set used for early stopping (ES).
-    loss_val_cv : a list loss values for each validation data set used for tuning other parameters.
-    final_epoch : a list of the final number of epochs for each CV split, e.g. [100, 89, 120].
+    Parameters:
+        loss_val_es_cv : a list loss values for each validation data set used for early stopping (ES).
+        loss_val_cv : a list loss values for each validation data set used for tuning other parameters.
+        final_epoch : a list of the final number of epochs for each CV split, e.g. [100, 89, 120].
     """
 
     loss_val_es_cv, loss_val_cv = loss_val_es_cv, loss_val_cv
@@ -99,13 +82,12 @@ def set_weights(model, weights):
 class LSTM_model(nn.Module):
     """A stateless LSTM neural network with return sequence=False.
 
-    Parameters
-    ----------
-    input_size : the number of variables.
-    hidden_size : the number of hidden units.
-    n_layer : the number of stacked layers.
-    dropout_prob : the dropout probability.
-    device : train a model either on CPU or GPU.
+    Attributes:
+        input_size : the number of variables.
+        hidden_size : the number of hidden units.
+        n_layer : the number of stacked layers.
+        dropout_prob : the dropout probability.
+        device : train a model either on CPU or GPU.
     """
 
     def __init__(self, input_size, hidden_size, n_layer, dropout_prob, device):
@@ -151,7 +133,14 @@ class DatasetUtil(Dataset):
 
 
 class PrepareData:
-    """Transforming data to a supervised ML problem, scaling data, creating CV indices."""
+    """Transforming data to a supervised ML problem, scaling data, creating CV indices.
+
+    Attributes:
+        id_col : the name of the id column, e.g. 'id'.
+        var_cols : a list containing variable names, e.g. ['x1', 'x2'].
+        seq_len : the sliding window size, e.g. seq_len=10.
+        sk_scaler_cv : sklearn estimator for data scaling, e.g. MinMaxScaler().
+    """
 
     def __init__(self, data, id_col, var_cols, seq_len, sk_scaler_cv):
         self.data = data.copy()  # !!
@@ -160,32 +149,22 @@ class PrepareData:
         self.seq_len = seq_len
         self.sk_scaler_cv = sk_scaler_cv
 
-        """
-        Parameters
-        ----------
-        id_col : the name of the id column, e.g. 'id'.
-        var_cols : a list containing variable names, e.g. ['x1', 'x2'].
-        seq_len : the sliding window size, e.g. seq_len=10.
-        sk_scaler_cv : sklearn estimator for data scaling, e.g. MinMaxScaler().
-        """
-
     def ts_shape(self, col_vector, model_stage: Literal['cv', 'training', 'forecasting']):
         """
         For a given id, this method reshapes it using the sliding window approach.
 
-        Example
-        ----------
-        The first column is the target variable (Y), the rest are exogenous variables (X):
+        Example:
+            The first column is the target variable (Y), the rest are exogenous variables (X):
 
-        [[22, 1, 0],
-         [33, 2, 0],
-         [44, 3, 0],
-         [55, 4, 0]]
+            [[22, 1, 0],
+             [33, 2, 0],
+             [44, 3, 0],
+             [55, 4, 0]]
 
-        Transforming the dataset to a supervised problem assuming the seq_len=2:
+            Transforming the dataset to a supervised problem assuming the seq_len=2:
 
-        X_1 = np.array([[22, 1, 0], [33, 2, 0]]), Y_1 = [44]
-        X_2 = np.array([[33, 2, 0], [44, 3, 0]]), Y_2 = [55]
+            X_1 = np.array([[22, 1, 0], [33, 2, 0]]), Y_1 = [44]
+            X_2 = np.array([[33, 2, 0], [44, 3, 0]]), Y_2 = [55]
         """
 
         if model_stage == 'forecasting':
@@ -229,7 +208,7 @@ class PrepareData:
     def ts_shape_grouped(self, id_list, model_stage: Literal['cv', 'training', 'forecasting']):
         """Iterating through each id and applying `ts_shape`."""
 
-        if model_stage == 'forecasting':  # (!! use only a subset of data !!)
+        if model_stage == 'forecasting':  # TODO: use only a subset of data
             x, y = [], None
 
             for i in id_list:
@@ -252,14 +231,14 @@ class PrepareData:
     def cv_idx(self, padded_len, n_split, val_size, val_size_es, idx_tr_scale=False):
         """This method creates indices for time-series CV.
 
-        Parameters
-        ----------
-        padded_len : the maximum length after padding that any id can have.
-        n_split : the number of CV splits.
-        val_size : the size of a validation set for parameter tuning.
-        val_size_es : the size of a validation set for early stopping.
-        idx_tr_scale : if True, indices are determined for the original dataset to apply scaling properly within each
-        CV loop. If False, indices are determined for the transformed dataset (reshaped for supervised learning).
+        Parameters:
+            padded_len : the maximum length after padding that any id can have.
+            n_split : the number of CV splits.
+            val_size : the size of a validation set for parameter tuning.
+            val_size_es : the size of a validation set for early stopping.
+            idx_tr_scale : if True, indices are determined for the original dataset to apply scaling properly within
+            each CV loop, i.e. no indices are removed to match what happens during data reshaping for supervised
+            learning. If False, indices are determined for the transformed dataset (reshaped for supervised learning).
         """
 
         n_ids = len(self.data[self.id_col].unique())
@@ -386,7 +365,7 @@ class LstmTrainingCv(PrepareData):
 
         return avg_loss
 
-    def lstm_cv(self, input_size, hidden_size, n_layer, dropout_prob, l_rate, padded_len,
+    def lstm_cv(self, input_size, hidden_size, n_layer, dropout_prob, l_rate, weight_decay, padded_len,
                 n_epoch, batch_size, n_split, val_size, val_size_es, patience, min_delta):
 
         # Converting data to a supervised format
@@ -419,7 +398,7 @@ class LstmTrainingCv(PrepareData):
                                n_layer=n_layer, dropout_prob=dropout_prob, device=self.device)
 
             model.to(self.device)
-            optimizer = torch.optim.Adam(model.parameters(), lr=l_rate)
+            optimizer = torch.optim.Adam(model.parameters(), lr=l_rate, weight_decay=weight_decay)
 
             # Preparing dataset: scaling, CV folds, loaders
             cv_idx_tr_scale = cv_idx_scale[i]
@@ -490,7 +469,7 @@ class LstmTrainingCv(PrepareData):
 
         return loss_val_es_cv, loss_val_cv, loss_final_epoch_val, final_epoch, loss_tr_cv  # param_all
 
-    def lstm_train(self, input_size, hidden_size, n_layer, dropout_prob,
+    def lstm_train(self, input_size, hidden_size, n_layer, dropout_prob, weight_decay,
                    l_rate, n_epoch, batch_size):
 
         # Converting data to a supervised format
@@ -507,7 +486,7 @@ class LstmTrainingCv(PrepareData):
                            n_layer=n_layer, dropout_prob=dropout_prob, device=self.device)
 
         model.to(self.device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=l_rate)
+        optimizer = torch.optim.Adam(model.parameters(), lr=l_rate, weight_decay=weight_decay)
 
         # Training
         param_all = []
@@ -519,19 +498,20 @@ class LstmTrainingCv(PrepareData):
         return model, param_all
 
     def lstm_forecast(self, model, data_vars, date_col, id_col, target_col, sk_scaler_fit):
-        # Converting data to a supervised format
+        # Converting data to a supervised format (takes the last seq_len number of observations)
         prepare_data_lstm = super().ts_shape_grouped(id_list=self.id_list, model_stage='forecasting')
         x_fc = torch.from_numpy(prepare_data_lstm[0])
 
         # Forecasting
         preds = model(x_fc.to(self.device)).detach().cpu().numpy().flatten()
 
-        # Adding predictions to the initial dataset (!! use a subset of data !!)
+        # TODO: use a subset of data
+        # Adding predictions to the initial dataset
         dates = [self.data[date_col].max() + pd.to_timedelta(1, unit='W')] * len(preds)
         col_names = [id_col] + [date_col] + [target_col]
         preds_df = pd.DataFrame(zip(self.id_list, dates, preds), columns=col_names)
-        preds_df = ts_var(data=preds_df, data_vars=data_vars, date_col=date_col,
-                          id_col=id_col, target_col=target_col)
+        preds_df = ts_var(data=preds_df, date_col=date_col, id_col=id_col, target_col=target_col,
+                          sin_cos_vars=True, lag_vars=True, data_vars=data_vars)
 
         input_col_new = [x for x in self.var_cols if target_col not in x]
         target_col_idx = self.var_cols.index(target_col)
@@ -539,6 +519,10 @@ class LstmTrainingCv(PrepareData):
         preds_df[input_col_new] = preds_df_scaled
 
         self.data = pd.concat([self.data, preds_df], axis=0)
+
+        # Recalculating lag variables
+        self.data = ts_var(data=self.data, date_col=date_col, id_col=id_col, target_col=target_col,
+                          sin_cos_vars=False, lag_vars=True, data_vars=None)
 
 
 if __name__ == '__main__':

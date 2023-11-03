@@ -1,0 +1,28 @@
+{
+    "model_configuration": {
+        "seq_len": 15,
+        "l_rate": 0.001,
+        "dropout_prob": 0.2,
+	"weight_decay": 1e-6,
+        "hidden_size": 64,
+        "n_layer": 2,
+        "batch_size": 512,
+        "n_epoch": 1000,
+        "patience": 55,
+        "min_delta": 0.02
+    },
+    "model_cv": {
+        "n_split": 4,
+        "val_size": 4,
+        "val_size_es": 4
+    },
+    "model_training": {
+        "n_models": 4
+    },
+    "model_forecasting": {
+        "h": 4
+    },
+    "testing": {
+        "testing": true
+    }
+}
