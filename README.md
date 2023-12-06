@@ -38,7 +38,7 @@ For this project, real-world data of beer consumption in Russia were used. All d
 │   ├── cv_train.py
 |   ├── data_processing.py
 │   ├── forecasting.py
-│   ├── model_creation.py
+│   └── model_creation.py
 ```
 
 **Directories**:
