@@ -12,7 +12,7 @@
 
 ## <a name="s1.1"/> 1. Goal
 
-Use an $LSTM$ neural network to model highly volatile sequential data with a hierarchical structure.
+Use an $LSTM$ neural network to model highly volatile sequential data with a hierarchical structure. Note, a simple $LSTM$ neural network used in this project was extended to the Seq2Seq architecture [here](https://github.com/ghginm/Seq2Seq).
 
 ## <a name="s1.2"/> 2. Data description
 
